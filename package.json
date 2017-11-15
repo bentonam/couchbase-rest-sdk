@@ -1,0 +1,80 @@
+{
+  "name": "couchbase-rest-sdk",
+  "author": "Aaron Benton <bentonam@gmail.com> (https://github.com/bentonam)",
+  "contributors": [
+    "Tyler Benton <tjbenton21@gmail.com> (https://github.com/tjbenton)"
+  ],
+  "version": "0.1.0",
+  "description": "A NodeJS SDK for the Couchbase REST API",
+  "scripts": {
+    "test": "make test",
+    "watch": "make build -- --watch"
+  },
+  "main": "dist/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bentonam/couchbase-rest-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bentonam/couchbase-rest-sdk/issues"
+  },
+  "engines": {
+    "node": ">=5"
+  },
+  "keywords": [
+    "couchbase",
+    "rest",
+    "sdk"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/bentonam/couchbase-rest-sdk#readme",
+  "dependencies": {
+    "async-array-methods": "^2.1.0",
+    "babel-runtime": "^6.23.0",
+    "debug": "^3.1.0",
+    "joi": "^10.6.0",
+    "request": "^2.78.0"
+  },
+  "devDependencies": {
+    "ava": "^0.23.0",
+    "ava-spec": "^1.1.0",
+    "babel-cli": "^6.24.1",
+    "babel-core": "^6.25.0",
+    "babel-plugin-array-includes": "^2.0.3",
+    "babel-plugin-external-helpers": "^6.22.0",
+    "babel-plugin-transform-runtime": "^6.23.0",
+    "babel-preset-env": "^1.6.0",
+    "lint-rules": "github:ma-shop/lint-rules#v0.1.4",
+    "np": "^2.17.0"
+  },
+  "babelConfig": {
+    "presets": [
+      "latest",
+      "stage-0"
+    ],
+    "plugins": [
+      "transform-runtime",
+      "external-helpers",
+      "array-includes"
+    ]
+  },
+  "ava": {
+    "files": [
+      "test/**/*.test.js"
+    ],
+    "source": [
+      "dist/**/*",
+      "test/fixtures/models/*/+(models|validation)/*",
+      "test/utils.js"
+    ],
+    "failFast": true,
+    "concurrency": 1,
+    "babel": "inherit"
+  },
+  "nyc": {
+    "exclude": [
+      "test/**/*",
+      "dist/index.js"
+    ]
+  }
+}
