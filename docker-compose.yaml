@@ -1,0 +1,38 @@
+version: '2'
+services:
+  couchbase-nodejs:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: couchbase-nodejs
+    environment:
+      DEBUG: "couchbase-rest-sdk:*,-*Base"
+    links:
+      - couchbase-test-1
+      - couchbase-test-2
+      - couchbase-test-3
+    volumes:
+      - ./app:/usr/src/app
+      - ./dist:/usr/src/dist
+    ports:
+      - "8080:8080"
+  couchbase-test-1:
+    image: couchbase:latest
+    container_name: couchbase-test-1
+    ports:
+      - "8091-8094:8091-8094"
+  couchbase-test-2:
+    image: couchbase:latest
+    container_name: couchbase-test-2
+    ports:
+      - "8000:8091"
+    links:
+      - couchbase-test-1
+  couchbase-test-3:
+    image: couchbase:latest
+    container_name: couchbase-test-3
+    ports:
+      - "8001:8091"
+    links:
+      - couchbase-test-1
+      - couchbase-test-2

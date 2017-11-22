@@ -30,21 +30,24 @@
   "homepage": "https://github.com/bentonam/couchbase-rest-sdk#readme",
   "dependencies": {
     "async-array-methods": "^2.1.0",
+    "babel-cli": "^6.24.1",
+    "babel-core": "^6.25.0",
+    "babel-plugin-external-helpers": "^6.22.0",
+    "babel-plugin-transform-runtime": "^6.23.0",
+    "babel-preset-env": "^1.6.0",
     "babel-runtime": "^6.23.0",
     "debug": "^3.1.0",
     "joi": "^10.6.0",
-    "request": "^2.78.0"
+    "lodash": "^4.17.4",
+    "request": "^2.83.0",
+    "request-promise-native": "^1.0.5"
   },
   "devDependencies": {
     "ava": "^0.23.0",
     "ava-spec": "^1.1.0",
-    "babel-cli": "^6.24.1",
-    "babel-core": "^6.25.0",
     "babel-plugin-array-includes": "^2.0.3",
-    "babel-plugin-external-helpers": "^6.22.0",
-    "babel-plugin-transform-runtime": "^6.23.0",
-    "babel-preset-env": "^1.6.0",
     "lint-rules": "github:ma-shop/lint-rules#v0.1.4",
+    "nodemon": "^1.12.1",
     "np": "^2.17.0"
   },
   "babelConfig": {
@@ -58,23 +61,43 @@
       "array-includes"
     ]
   },
+  "babel": {
+    "presets": [
+      [
+        "env",
+        {
+          "targets": {
+            "node": "6.12"
+          }
+        }
+      ],
+      "stage-0"
+    ],
+    "plugins": [
+      "transform-runtime",
+      "external-helpers"
+    ]
+  },
+  "eslintConfig": {
+    "extends": [
+      "./node_modules/lint-rules/eslint/index.js"
+    ],
+    "rules": {
+      "callback-return": "off",
+      "id-match": "off"
+    }
+  },
+  "eslintIgnore": [
+    "node_modules",
+    "test/**/!(*.test.js)"
+  ],
   "ava": {
     "files": [
       "test/**/*.test.js"
     ],
     "source": [
-      "dist/**/*",
-      "test/fixtures/models/*/+(models|validation)/*",
-      "test/utils.js"
+      "dist/**/*"
     ],
-    "failFast": true,
-    "concurrency": 1,
     "babel": "inherit"
-  },
-  "nyc": {
-    "exclude": [
-      "test/**/*",
-      "dist/index.js"
-    ]
   }
 }

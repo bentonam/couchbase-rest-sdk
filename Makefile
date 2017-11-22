@@ -8,11 +8,7 @@ args = $(filter-out $@, $(MAKECMDGOALS))
 all: build test
 
 install:
-	@if type yarn 2>/dev/null; then \
-		yarn install; \
-	else \
-		npm install; \
-	fi;
+	@npm install
 
 # remove the build and log folders
 clean:
@@ -31,26 +27,23 @@ reinstall setup:
 # build the source files
 build compile:
 	@make clean
-	@babel app --out-dir dist $(args)
-
-# makes it easier to build files with source maps without errors
-# from other make commands
-build-source-maps compile-source-maps:
-	@make clean
-	@babel app --out-dir dist --source-maps $(args)
+	@babel app --source-maps --out-dir dist $(args)
 
 # When watching for changes we can assume it's a development env
 # so build files with source maps
 watch:
-	@make build-source-maps -- --watch $(args)
+	@babel app --source-maps --out-dir dist --watch
 
 # lint test files
 lint:
-	@command -v eslint >/dev/null 2>&1 && eslint 'app' 'test' || ./node_modules/lint-rules/node_modules/.bin/eslint 'app' 'test';
+	@eslint app
 
+# start the node process
+start:
+		@nodemon -e js,pug -w dist dist/test.js;
 # run unit tests
 test:
-	ava $(args)
+	@ava $(args)
 
 # The command the ci server runs
 ci:
