@@ -3,7 +3,6 @@
 /// @page app/base
 ////
 const debug = require('debug')('couchbase-rest-sdk:RestApi');
-import Base from './base';
 import Cluster from './cluster';
 import Node from './node';
 import {
@@ -19,7 +18,22 @@ const clusters_map = new WeakMap();
 /// @name RestApi
 /// @description RestApi class
 /// @type {class}
-export default class RestApi extends Base {
+export default class RestApi {
+  ///# @name constructor
+  ///# @arg {object}
+  ///# ```js
+  ///# {
+  ///#   password: '', // the cluster admin password
+  ///#   username: '', // the cluster admin username
+  ///# }
+  ///# ```
+  constructor({
+    password = 'password',
+    username = 'Administrator',
+  } = {}) {
+    extend(this, { username, password });
+  }
+
   ///# @name cluster
   ///# @description Gets a new instance of the RestApi class
   ///# @arg {string} cluster_host ['' || {}] - The host / ip address of a node
@@ -51,7 +65,7 @@ export default class RestApi extends Base {
     let cluster = clusters_map[JSON.stringify(options)];
     // if it doesn't exist set it and save it in the map
     if (!cluster) {
-      cluster = cluster = new Cluster(options);
+      cluster = new Cluster(options);
       clusters_map[JSON.stringify(options)] = cluster;
     }
     return cluster;
@@ -88,11 +102,14 @@ export default class RestApi extends Base {
     debug(`  node_host: ${node_host}`);
     debug(`  node_port: ${node_port}`);
     debug(`  node_protocol: ${node_protocol}`);
-    debug(`  options: ${options}`);
+    debug(`  options: ${JSON.stringify(config, null, 2)}`);
     const node = new Node({
       cluster_host: node_host,
       cluster_port: node_port,
       cluster_protocol: node_protocol,
+      node_host,
+      node_port,
+      node_protocol,
       password: this.password,
       username: this.username,
     });

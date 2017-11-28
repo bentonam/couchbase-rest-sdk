@@ -7,6 +7,7 @@ const debug = require('debug')('couchbase-rest-sdk:Cluster');
 import Base from './base';
 import Bucket from './bucket';
 import Node from './node';
+import ServerGroup from './server-group';
 import {
   cloneDeep,
   extend,
@@ -35,15 +36,9 @@ export default class Cluster extends Base {
   ///# }
   ///# ```
   constructor({
-    cluster_host = 'localhost',
-    cluster_port = 8091,
-    cluster_protocol = 'http',
     ...options
   } = {}) {
     super(options);
-    this.cluster_host = cluster_host;
-    this.cluster_port = cluster_port;
-    this.cluster_protocol = cluster_protocol;
   }
 
   ///# @name initialize
@@ -66,7 +61,8 @@ export default class Cluster extends Base {
   ///# }
   ///# ```
   ///# @async
-  async initialize({
+  async initialize({ // eslint-disable-line max-statements
+    buckets,
     cluster_name,
     data_path,
     fts_memory,
@@ -98,7 +94,8 @@ export default class Cluster extends Base {
     }
     // if there are node specific settings, create a new instance and configure it
     if (data_path || hostname || index_path || services) {
-      const node = new Node(this);
+      const node = this.node();
+      node.cluster = this;
       await node.configure({
         data_path,
         hostname,
@@ -106,7 +103,7 @@ export default class Cluster extends Base {
         services,
       });
     }
-    // if there is a username / password, set it last
+    // if there is a username / password, set it
     if (username && password) {
       await this.credentials({ username, password });
     }
@@ -114,9 +111,13 @@ export default class Cluster extends Base {
     if (cluster_name) {
       await this.clusterName(cluster_name);
     }
+    // if there are any buckets to create
+    if (buckets && buckets.length) {
+      await this.addBuckets(buckets);
+    }
     // if there are nodes to add
-    if (nodes) {
-      await this.addNodes(nodes, rebalance);
+    if (nodes && nodes.length) {
+      await this.addNodes({ nodes, rebalance });
     }
     return this;
   }
@@ -137,9 +138,11 @@ export default class Cluster extends Base {
     this.username = username;
     this.password = password;
     return this.post('/settings/web', {
-      username,
-      password,
-      port: 'SAME',
+      form: {
+        username,
+        password,
+        port: 'SAME',
+      },
     });
   }
 
@@ -200,10 +203,12 @@ export default class Cluster extends Base {
     debug(`  kv_memory: ${kv_memory}`);
     debug(`  index_memory: ${index_memory}`);
     debug(`  fts_memory: ${fts_memory}`);
-    return this.post('/pools/default', {
-      memoryQuota: kv_memory,
-      indexMemoryQuota: index_memory,
-      ftsMemoryQuota: fts_memory,
+    return this.post(`/pools/${this.pool}`, {
+      form: {
+        memoryQuota: kv_memory,
+        indexMemoryQuota: index_memory,
+        ftsMemoryQuota: fts_memory,
+      },
     });
   }
 
@@ -215,8 +220,10 @@ export default class Cluster extends Base {
   clusterName(cluster_name) {
     debug('clusterName');
     debug(`  name: ${name}`);
-    return this.post('/pools/default', {
-      clusterName: cluster_name,
+    return this.post(`/pools/${this.pool}`, {
+      form: {
+        clusterName: cluster_name,
+      },
     });
   }
 
@@ -233,9 +240,9 @@ export default class Cluster extends Base {
   ///# @description Gets the details about the cluster
   ///# @reference https://developer.couchbase.com/documentation/server/5.0/rest-api/rest-cluster-get.html
   ///# @async
-  details(pool = 'default') {
+  details() {
     debug('details');
-    return this.get(`/pools/${pool}`);
+    return this.get(`/pools/${this.pool}`);
   }
 
   ///# @name node
@@ -254,19 +261,21 @@ export default class Cluster extends Base {
   node(
     node_host = this.cluster_host,
     options = {
-      node_port: 8091,
-      node_protocol: 'http',
+      node_port: this.cluster_port,
+      node_protocol: this.cluster_protocol,
+      password: this.password,
+      username: this.username,
     },
   ) {
     debug('node');
     // if options is defined and node_host is an object
     if (isObject(node_host)) {
-      options = cloneDeep(node_host);
+      options = extend(cloneDeep(node_host), options);
       node_host = this.cluster_host;
     }
     options = extend(
-      pick(this, [ 'password', 'username' ]),
-      { options },
+      pick(this, [ 'cluster_host', 'cluster_port', 'cluster_protocol', 'password', 'username' ]),
+      options,
       { node_host },
     );
     debug(`  node_host: ${options.node_host}`);
@@ -277,7 +286,6 @@ export default class Cluster extends Base {
     // if it doesn't exist set it and save it in the map
     if (!node) {
       node = new Node(options);
-      node.cluster = this;
       nodes_map[JSON.stringify(options)] = node;
     }
     return node;
@@ -289,7 +297,7 @@ export default class Cluster extends Base {
   ///# @arg {boolean} rebalance [true] - Whether or not to rebalance automatically after all of the nodes have been added
   ///# @reference https://developer.couchbase.com/documentation/server/5.0/rest-api/rest-cluster-addnodes.html
   ///# @async
-  async addNodes(nodes, rebalance = true) {
+  async addNodes({ nodes = [], rebalance = true } = {}) {
     debug('addNodes');
     nodes = await Promise.all(nodes);
     const add_nodes = [];
@@ -331,14 +339,16 @@ export default class Cluster extends Base {
   ///# @async
   addNode({ cluster_host, node_host, hostname, services } = {}) {
     debug('addNode');
-    hostname = cluster_host || node_host || hostname;
+    hostname = node_host || hostname || cluster_host;
     debug(`  hostname: ${hostname}`);
     debug(`  services: ${services}`);
     return this.post('/controller/addNode', {
-      hostname,
-      services,
-      user: this.username,
-      password: this.password,
+      form: {
+        hostname,
+        services,
+        user: this.username,
+        password: this.password,
+      },
     });
   }
 
@@ -353,24 +363,13 @@ export default class Cluster extends Base {
     debug(`  hostname: ${hostname}`);
     debug(`  node: ${node}`);
     return this.post('/controller/ejectNode', {
-      otpNode: `${node}@${hostname}`,
+      form: {
+        otpNode: `${node}@${hostname}`,
+      },
     })
       .catch((err) => {
         throw new Error(err.message);
       });
-  }
-
-  ///# @name bucket
-  ///# @description Gets a new instance of the Bucket class
-  ///# @arg {string} name [''] - the name of the bucket
-  ///# @async
-  bucket(name = '') {
-    debug('bucket');
-    debug(`  name: ${name}`);
-    return new Bucket(extend(
-      pick(this, [ 'cluster_host', 'cluster_port', 'cluster_protocol', 'password', 'username' ]),
-      { name },
-    ));
   }
 
   ///# @name rebalance
@@ -396,8 +395,23 @@ export default class Cluster extends Base {
     debug(`  knownNodes: ${knownNodes.join(', ')}`);
     debug(`  ejectedNodes: ${ejectedNodes.join(', ')}`);
     return this.post('/controller/rebalance', {
-      knownNodes: knownNodes.join(','),
+      form: {
+        knownNodes: knownNodes.join(','),
+      },
     });
+  }
+
+  ///# @name bucket
+  ///# @description Gets a new instance of the Bucket class
+  ///# @arg {string} name [''] - the name of the bucket
+  ///# @async
+  bucket(name = '') {
+    debug('bucket');
+    debug(`  name: ${name}`);
+    return new Bucket(extend(
+      pick(this, [ 'cluster_host', 'cluster_port', 'cluster_protocol', 'password', 'username' ]),
+      { name },
+    ));
   }
 
   ///# @name addBuckets
@@ -417,13 +431,32 @@ export default class Cluster extends Base {
 
   ///# @name addBucket
   ///# @description Adds a bucket to the cluster
-  ///# @arg {object}
+  ///# @arg {string} name [''] - The name of the bucket
+  ///# @arg {object} options [{}] - All of the options for the bucket
   ///# ```js
   ///# {
-  ///#   cluster_host: '', // the hostname or ip address of the node to add
-  ///#   node_host: '', // the hostname or ip address of the node to add
-  ///#   hostname: '', // the hostname or ip address of the node to add
-  ///#   services: '', // a comma-delimited list of services to add, can be: kv, n1ql, index, fts
+  ///#   abort_outside_allowed_time: false, // whether or not to allow compaction outside of the specfied compaction time or not
+  ///#   allowed_time_period_start: '', // the allowed time period for compaction to start in HH:MM format
+  ///#   allowed_time_period_stop: '', // the time period for compaction should stop in HH:MM format
+  ///#   auth_type: null, // the auth type to use, can be: none, sasl
+  ///#   auto_compaction_defined: false, // whether or not auto compaction override settings have been defined
+  ///#   bucket_priority: 'high', // the bucket priority, can be default or high
+  ///#   bucket_type: 'membase', // the bucket type, can be: membase, memcached, ephemeral
+  ///#   conflict_resolution_type: 'seqno', // the conflict resolution to use, can be: seqno, lww, timestamp
+  ///#   database_fragmentation_percentage_threshold: null, // the fragmentation to use for database compaction
+  ///#   database_fragmentation_size_threshold: null, // the database size in MB to use for database compaction
+  ///#   document_replicas: 1, // the number of document replicas to use
+  ///#   eviction_policy: 'valueOnly', // the eviction policy to use, can be: valueOnly, full, nruEviction, noEviction
+  ///#   flush_enabled: false, // whether or not the bucket can be flushed
+  ///#   index_compaction_mode: 'circular', // the compaction mode to use for indexing, can be: circular or append
+  ///#   index_replicas: 0, // the number of index replicas to use
+  ///#   name: this.name, // the name of the bucket
+  ///#   parallel_compaction: false, // whether or not database and view compaction can run in parallel
+  ///#   ram_size: 100, // the size of the bucket in MB / node
+  ///#   sasl_password: null, // the sasl password if authType = sasl
+  ///#   threads_number: 3, // this is the bucket priority, default = 3, high = 8
+  ///#   view_fragmentation_percentage_threshold: null, // the percentage threshold to use for view fragmentation
+  ///#   view_fragmentation_size_threshold: null, // the view fragmentation threshold size in bytes
   ///# }
   ///# ```
   ///# @async
@@ -454,7 +487,31 @@ export default class Cluster extends Base {
   ///# @async
   buckets() {
     debug('buckets');
-    return this.get('/pools/default/buckets');
+    return this.get(`/pools/${this.pool}/buckets`);
+  }
+
+  ///# @name serverGroups
+  ///# @description Gets the available server groups in the cluster
+  ///# @reference https://developer.couchbase.com/documentation/server/5.0/rest-api/rest-servergroup-get.html
+  ///# @async
+  serverGroups() {
+    debug('serverGroups');
+    return this.get(`/pools/${this.pool}/serverGroups`);
+  }
+
+  ///# @name serverGroup
+  ///# @description Gets a new instance of the ServerGroup class
+  ///# @arg {string} name [''] - the name of the server group
+  ///# @async
+  serverGroup(name = '') {
+    debug('serverGroup');
+    debug(`  name: ${name}`);
+    const server_group = new ServerGroup(extend(
+      pick(this, [ 'cluster_host', 'cluster_port', 'cluster_protocol', 'password', 'username' ]),
+      { name },
+    ));
+    server_group.cluster = this;
+    return server_group;
   }
 
   ///# @name getInternalSettings
@@ -508,20 +565,22 @@ export default class Cluster extends Base {
   }) {
     debug('internalSettings');
     return this.post('/internalSettings', {
-      indexAwareRebalanceDisabled,
-      rebalanceIndexWaitingDisabled,
-      rebalanceIndexPausingDisabled,
-      rebalanceIgnoreViewCompactions,
-      rebalanceMovesPerNode,
-      rebalanceMovesBeforeCompaction,
-      maxParallelIndexers,
-      maxParallelReplicaIndexers,
-      maxBucketCount,
-      gotraceback,
-      indexAutoFailoverDisabled,
-      certUseSha1,
-      capiRequestLimit,
-      restRequestLimit,
+      form: {
+        indexAwareRebalanceDisabled,
+        rebalanceIndexWaitingDisabled,
+        rebalanceIndexPausingDisabled,
+        rebalanceIgnoreViewCompactions,
+        rebalanceMovesPerNode,
+        rebalanceMovesBeforeCompaction,
+        maxParallelIndexers,
+        maxParallelReplicaIndexers,
+        maxBucketCount,
+        gotraceback,
+        indexAutoFailoverDisabled,
+        certUseSha1,
+        capiRequestLimit,
+        restRequestLimit,
+      },
     });
   }
 
@@ -576,20 +635,22 @@ export default class Cluster extends Base {
   }) {
     debug('internalSettings');
     return this.post('/internalSettings', {
-      indexAwareRebalanceDisabled,
-      rebalanceIndexWaitingDisabled,
-      rebalanceIndexPausingDisabled,
-      rebalanceIgnoreViewCompactions,
-      rebalanceMovesPerNode,
-      rebalanceMovesBeforeCompaction,
-      maxParallelIndexers,
-      maxParallelReplicaIndexers,
-      maxBucketCount,
-      gotraceback,
-      indexAutoFailoverDisabled,
-      certUseSha1,
-      capiRequestLimit,
-      restRequestLimit,
+      form: {
+        indexAwareRebalanceDisabled,
+        rebalanceIndexWaitingDisabled,
+        rebalanceIndexPausingDisabled,
+        rebalanceIgnoreViewCompactions,
+        rebalanceMovesPerNode,
+        rebalanceMovesBeforeCompaction,
+        maxParallelIndexers,
+        maxParallelReplicaIndexers,
+        maxBucketCount,
+        gotraceback,
+        indexAutoFailoverDisabled,
+        certUseSha1,
+        capiRequestLimit,
+        restRequestLimit,
+      },
     });
   }
 
@@ -619,8 +680,10 @@ export default class Cluster extends Base {
     debug('setAutoFailover');
     debug(`  enabled: ${enabled}`);
     return this.post('/settings/autoFailover', {
-      enabled,
-      timeout,
+      form: {
+        enabled,
+        timeout,
+      },
     });
   }
 
@@ -690,15 +753,17 @@ export default class Cluster extends Base {
     debug(`  recipients: ${recipients}`);
     debug(`  sender: ${sender}`);
     return this.post('/settings/alerts', {
-      alerts,
-      emailEncrypt: email_encrypt,
-      emailHost: email_host,
-      emailPort: email_port,
-      emailPass: email_pass,
-      emailUser: email_user,
-      enabled,
-      recipients,
-      sender,
+      form: {
+        alerts,
+        emailEncrypt: email_encrypt,
+        emailHost: email_host,
+        emailPort: email_port,
+        emailPass: email_pass,
+        emailUser: email_user,
+        enabled,
+        recipients,
+        sender,
+      },
     });
   }
 }

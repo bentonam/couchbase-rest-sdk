@@ -17,11 +17,14 @@ export default class Node extends Base {
   ///# @arg {object}
   ///# ```js
   ///# {
+  ///#   cluster_host: 'localhost', // the hostname / ip address of a node in the cluster
+  ///#   cluster_port: 8091, // the port to use, defaults to 8091
+  ///#   cluster_protocol: 'http', // the http protocol to use, defaults to http
   ///#   node_host: 'localhost', // the hostname / ip address of a node in the cluster
   ///#   node_port: 8091, // the port to use, defaults to 8091
   ///#   node_protocol: 'http', // the http protocol to use, defaults to http
   ///#   password: '', // the cluster admin password
-  ///#   name: '', // the name of a bucket
+  ///#   username: '', // the cluster admin username
   ///# }
   ///# ```
   constructor({
@@ -34,25 +37,6 @@ export default class Node extends Base {
     this.node_host = node_host;
     this.node_port = node_port;
     this.node_protocol = node_protocol;
-  }
-
-  ///# @name cluster
-  ///# @getter
-  ///# @description Gets the current documents cas value
-  ///# @returns {number}
-  get cluster() {
-    return this.cluster;
-  }
-
-  ///# @name cas
-  ///# @getter
-  ///# @description Gets the current documents cas value
-  ///# @returns {number}
-  set cluster(value) {
-    Object.defineProperty(this, 'cluster', {
-      value,
-      writable: false,
-    });
   }
 
   ///# @name configure
@@ -115,8 +99,10 @@ export default class Node extends Base {
     debug(`  data_path: ${data_path}`);
     debug(`  index_path: ${index_path}`);
     return this.post('/nodes/self/controller/settings', {
-      path: data_path,
-      index_path,
+      form: {
+        path: data_path,
+        index_path,
+      },
     });
   }
 
@@ -129,22 +115,37 @@ export default class Node extends Base {
     debug('hostname');
     debug(`  hostname: ${hostname}`);
     return this.post('/node/controller/rename', {
-      hostname,
+      form: {
+        hostname,
+      },
     });
   }
 
   ///# @name services
   ///# @description Sets the available services on the nodes
-  ///# @arg {string} services [ 'kv' ] - A comma-delimited list of services, valid values are: kv, index, query, fts
+  ///# @arg {string} services [ 'kv' ] - A comma-delimited list of services, valid values are: kv, index, n1ql, fts
   ///# @reference https://developer.couchbase.com/documentation/server/5.0/rest-api/rest-node-provisioning.html
   ///# @async
   useServices(services = 'kv') {
     debug('useServices');
-    // replace data with kv and strip all spaces
-    services = services.replace('data', 'kv').replace(/\s+/g, '');
+    const replacements = [
+      { key: 'data', value: 'kv' },
+      { key: 'query', value: 'n1ql' },
+      { key: 'idx', value: 'index' },
+      { key: 'full text', value: 'fts' },
+      { key: 'full-text', value: 'fts' },
+    ];
+    // correct any service keys
+    for (const correction of replacements) {
+      services = services.replace(correction.key, correction.value);
+    }
+    // strip all spaces
+    services = services.replace(/\s+/g, '');
     debug(`  services: ${services}`);
     return this.post('/node/controller/setupServices', {
-      services,
+      form: {
+        services,
+      },
     });
   }
 
@@ -167,15 +168,13 @@ export default class Node extends Base {
     debug(`  node: ${node}`);
     debug(`  hostname: ${hostname}`);
     return this.post('/controller/ejectNode', {
-      otpNode: `${node}@${hostname}`,
-    }, {}, {
+      form: {
+        otpNode: `${node}@${hostname}`,
+      },
       host: this.cluster.cluster_host,
       protocol: this.cluster.cluster_protocol,
       port: this.cluster.cluster_port,
-    })
-      .catch((err) => {
-        throw new Error(err.message);
-      });
+    });
   }
 
   ///# @name failover
@@ -203,11 +202,10 @@ export default class Node extends Base {
       endpoint = '/controller/failOver';
     }
     return this.post(endpoint, {
-      otpNode: `${node}@${hostname}`,
-    })
-      .catch((err) => {
-        throw new Error(err.message);
-      });
+      form: {
+        otpNode: `${node}@${hostname}`,
+      },
+    });
   }
 
   ///# @name recover
@@ -234,12 +232,11 @@ export default class Node extends Base {
     debug(`  hostname: ${hostname}`);
     // post the recover_type
     await this.post('/controller/setRecoveryType', {
-      otpNode: `${node}@${hostname}`,
-      recoveryType: recover_type,
-    })
-      .catch((err) => {
-        throw new Error(err.message);
-      });
+      form: {
+        otpNode: `${node}@${hostname}`,
+        recoveryType: recover_type,
+      },
+    });
     // do we need to rebalance?
     if (rebalance) {
       await this.cluster.rebalance();
@@ -278,16 +275,15 @@ export default class Node extends Base {
     debug(`  username: ${username}`);
     // join the cluster
     await this.post('/node/controller/doJoinCluster', {
-      clusterMemberHostIp: cluster_host,
-      clusterMemberPort: cluster_port,
-      user: username,
-      password,
-    })
-      .catch((err) => {
-        throw new Error(err.message);
-      });
+      form: {
+        clusterMemberHostIp: cluster_host,
+        clusterMemberPort: cluster_port,
+        user: username,
+        password,
+      },
+    });
     // should we rebalance?
-    if (rebalance) {
+    if (rebalance && this.cluster) {
       await this.cluster.rebalance();
     }
     return this;

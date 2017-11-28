@@ -6,7 +6,6 @@ const debug = require('debug')('couchbase-rest-sdk:Bucket');
 import Base from './base';
 import {
   extend,
-  get,
   pick,
   reduce,
 } from 'lodash';
@@ -67,7 +66,9 @@ export default class Bucket extends Base {
     const params = this.normalizeParams(options);
     debug(`  name: ${params.name}`);
     debug(`  options: ${params}`);
-    await this.post('/pools/default/buckets', params);
+    await this.post(`/pools/${this.pool}/buckets`, {
+      form: params,
+    });
     return this;
   }
 
@@ -105,21 +106,15 @@ export default class Bucket extends Base {
   async validate(options = {}) {
     debug('validate');
     const params = this.normalizeParams(options);
-    let errors = [];
     debug(`  name: ${params.name}`);
     debug(`  options: ${params}`);
-    await this.post('/pools/default/buckets', params, {
-      ignore_warnings: 0,
-      just_validate: 1,
-    })
-      .catch((err) => {
-        errors = reduce(get(err, 'error.errors', {}), (previous, value) => {
-          previous.push(value);
-          return previous;
-        }, []);
-        errors = errors.length ? errors : [ 'Unknown Error ¯\_(ツ)_/¯' ]; // eslint-disable-line no-useless-escape
-        throw errors;
-      });
+    await this.post('/pools/default/buckets', {
+      form: params,
+      query: {
+        ignore_warnings: 0,
+        just_validate: 1,
+      },
+    });
     return true;
   }
 
@@ -164,7 +159,7 @@ export default class Bucket extends Base {
       conflict_resolution_type: 'seqno', // the conflict resolution to use, can be: seqno, timestamp
       database_fragmentation_percentage_threshold: null, // the fragmentation to use for database compaction
       database_fragmentation_size_threshold: null, // the database size in MB to use for database compaction
-      document_replicas: 1, // the number of document replicas to use
+      document_replicas: 0, // the number of document replicas to use
       eviction_policy: 'valueOnly', // the eviction policy to use, can be: valueOnly, full
       flush_enabled: false, // whether or not the bucket can be flushed
       index_compaction_mode: 'circular', // the compaction mode to use for indexing, can be: circular or append
@@ -196,7 +191,7 @@ export default class Bucket extends Base {
     };
     // merge the options w/ the defaults, and map the necessary keys to the proper form values
     /* eslint-disable complexity */
-    const params = reduce(extend({}, defaults, pick(options, Object.keys(defaults))), (result, value, key) => {
+    let params = reduce(extend({}, defaults, pick(options, Object.keys(defaults))), (result, value, key) => {
       if (value !== null) { // if there is a value
         switch (key) {
           case 'allowed_time_period_start':
@@ -219,19 +214,30 @@ export default class Bucket extends Base {
           case 'bucket_priority':
             result.threadsNumber = value === 'high' ? 8 : 3;
             break;
+          case 'flush_enabled':
+            result.flushEnabled = value ? 1 : 0;
+            break;
           default:
             if (key_map.hasOwnProperty(key)) {
               result[key_map[key]] = value;
             }
         }
-        result.flushEnabled = result.flushEnabled ? 1 : 0; // flushEnabled needs to be an integer
-        result.autoCompactionDefined = result.database_fragmentation_percentage_threshold ||
-          result.database_fragmentation_size_threshold ||
-          result.view_fragmentation_percentage_threshold ||
-          result.view_fragmentation_size_threshold ? true : false; // eslint-disable-line no-unneeded-ternary
       }
       return result;
     }, {});
+    params.autoCompactionDefined = options.database_fragmentation_percentage_threshold ||
+      options.database_fragmentation_size_threshold ||
+      options.view_fragmentation_percentage_threshold ||
+      options.view_fragmentation_size_threshold ? true : false; // eslint-disable-line no-unneeded-ternary
+    // filter out keys not supported by ephemeral buckets
+    if (options.bucket_type === 'ephemeral') {
+      params = reduce(params, (previous, value, key) => {
+        if (![ 'autoCompactionDefined', 'replicaIndex' ].includes(key)) {
+          previous[key] = value;
+        }
+        return previous;
+      }, {});
+    }
     return params;
   }
 }
